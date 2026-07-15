@@ -185,6 +185,11 @@ type VFS struct {
 	usage       *fs.Usage
 	pollChan    chan time.Duration
 	inUse       atomic.Int32 // count of number of opens
+
+	// Optional hook, set by FUSE mounts, to invalidate the kernel's cached
+	// directory entry (parent node + leaf) when the VFS forgets it. Nil for
+	// non-FUSE users.
+	kernelCacheInvalidator func(parent Node, leaf string)
 }
 
 // Keep track of active VFS keyed on fs.ConfigString(f)
@@ -317,6 +322,31 @@ func activeCacheEntries() (vfs *VFS, count int) {
 // Fs returns the Fs passed into the New call
 func (vfs *VFS) Fs() fs.Fs {
 	return vfs.f
+}
+
+// SetKernelCacheInvalidator registers a function that the VFS calls to drop the
+// kernel's cached attributes for a node when that node is forgotten (via
+// vfs/forget or a backend ChangeNotify). FUSE mounts set this so an out-of-band
+// change is reflected in the kernel immediately, instead of the kernel serving
+// stale attributes (a size populated by an earlier readdirplus) until
+// --attr-timeout expires. Non-FUSE VFS users (e.g. serve nfs) leave it unset.
+func (vfs *VFS) SetKernelCacheInvalidator(fn func(parent Node, leaf string)) {
+	vfs.kernelCacheInvalidator = fn
+}
+
+// invalidateKernelCache asks the kernel (via the registered invalidator, if any)
+// to drop its cached directory entry for absPath, forcing a fresh lookup on next
+// access. Called synchronously from the forget/change-notify path -- which is not
+// a FUSE request handler -- so the underlying kernel notify can safely block until
+// it has been applied.
+func (vfs *VFS) invalidateKernelCache(absPath string) {
+	if vfs.kernelCacheInvalidator == nil || absPath == "" {
+		return
+	}
+	dir, leaf := path.Split(absPath)
+	if parent := vfs.root.cachedNode(strings.Trim(dir, "/")); parent != nil {
+		vfs.kernelCacheInvalidator(parent, leaf)
+	}
 }
 
 // SetCacheMode change the cache mode

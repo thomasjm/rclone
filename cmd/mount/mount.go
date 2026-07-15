@@ -91,6 +91,21 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 	filesys := NewFS(VFS, opt)
 	filesys.server = fusefs.New(c, nil)
 
+	// When the VFS forgets a node (vfs/forget, or a backend ChangeNotify), also
+	// tell the kernel to drop its cached attributes for it. Otherwise the kernel
+	// keeps answering getattr from a stale cached size (populated by an earlier
+	// readdirplus) until --attr-timeout expires. Runs from the RC/poll path, not a
+	// FUSE request handler, so the notify can be synchronous without deadlocking.
+	VFS.SetKernelCacheInvalidator(func(parent vfs.Node, leaf string) {
+		parentNode, ok := parent.Sys().(fusefs.Node)
+		if !ok {
+			return // parent not yet known to the kernel; nothing cached to invalidate
+		}
+		if err := filesys.server.InvalidateEntry(parentNode, leaf); err != nil && err != fuse.ErrNotCached {
+			fs.Debugf(parent, "Failed to invalidate kernel entry %q: %v", leaf, err)
+		}
+	})
+
 	// Serve the mount point in the background returning error to errChan
 	errChan := make(chan error, 1)
 	go func() {

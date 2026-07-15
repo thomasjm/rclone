@@ -297,6 +297,7 @@ func (d *Dir) changeNotify(relativePath string, entryType fs.EntryType) {
 	if entryType == fs.EntryDirectory {
 		d.invalidateDir(absPath)
 	}
+	d.vfs.invalidateKernelCache(absPath)
 }
 
 // ForgetPath clears the cache for itself and all subdirectories if
@@ -316,6 +317,10 @@ func (d *Dir) ForgetPath(relativePath string, entryType fs.EntryType) {
 	if entryType == fs.EntryDirectory {
 		d.forgetDirPath(relativePath)
 	}
+	// Also drop the kernel's cached attributes for this path, so a getattr after
+	// the change goes back to rclone (now fresh) instead of the kernel answering
+	// from a stale cached size until --attr-timeout expires.
+	d.vfs.invalidateKernelCache(absPath)
 }
 
 // walk runs a function on all cached directories. It will be called
