@@ -91,6 +91,17 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 	filesys := NewFS(VFS, opt)
 	filesys.server = fusefs.New(c, nil)
 
+	// Let the VFS drop the kernel's cached dir entry when it forgets a node.
+	VFS.SetKernelCacheInvalidator(func(parent vfs.Node, leaf string) {
+		parentNode, ok := parent.Sys().(fusefs.Node)
+		if !ok {
+			return
+		}
+		if err := filesys.server.InvalidateEntry(parentNode, leaf); err != nil && err != fuse.ErrNotCached {
+			fs.Debugf(parent, "Failed to invalidate kernel entry %q: %v", leaf, err)
+		}
+	})
+
 	// Serve the mount point in the background returning error to errChan
 	errChan := make(chan error, 1)
 	go func() {

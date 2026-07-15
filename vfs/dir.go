@@ -296,6 +296,7 @@ func (d *Dir) changeNotify(relativePath string, entryType fs.EntryType) {
 	if entryType == fs.EntryDirectory {
 		d.invalidateDir(absPath)
 	}
+	d.vfs.invalidateKernelCache(absPath)
 }
 
 // ForgetPath clears the cache for itself and all subdirectories if
@@ -315,6 +316,7 @@ func (d *Dir) ForgetPath(relativePath string, entryType fs.EntryType) {
 	if entryType == fs.EntryDirectory {
 		d.forgetDirPath(relativePath)
 	}
+	d.vfs.invalidateKernelCache(absPath)
 }
 
 // walk runs a function on all cached directories. It will be called

@@ -45,7 +45,9 @@ func (f *FS) Root() (node fusefs.Node, err error) {
 	if err != nil {
 		return nil, translateError(err)
 	}
-	return &Dir{root, f}, nil
+	d := &Dir{root, f}
+	root.SetSys(d) // cache the FUSE node for later
+	return d, nil
 }
 
 // Check interface satisfied

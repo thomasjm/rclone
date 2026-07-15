@@ -188,6 +188,9 @@ type VFS struct {
 	usage       *fs.Usage
 	pollChan    chan time.Duration
 	inUse       atomic.Int32 // count of number of opens
+
+	// set by FUSE mounts to drop the kernel's cached entry on forget; nil otherwise
+	kernelCacheInvalidator func(parent Node, leaf string)
 }
 
 // Keep track of active VFS keyed on fs.ConfigString(f)
@@ -356,6 +359,22 @@ func activeCacheEntries() (vfs *VFS, count int) {
 // Fs returns the Fs passed into the New call
 func (vfs *VFS) Fs() fs.Fs {
 	return vfs.f
+}
+
+// SetKernelCacheInvalidator sets the hook FUSE mounts use to drop the kernel's
+// cached directory entry when the VFS forgets a node.
+func (vfs *VFS) SetKernelCacheInvalidator(fn func(parent Node, leaf string)) {
+	vfs.kernelCacheInvalidator = fn
+}
+
+func (vfs *VFS) invalidateKernelCache(absPath string) {
+	if vfs.kernelCacheInvalidator == nil || absPath == "" {
+		return
+	}
+	dir, leaf := path.Split(absPath)
+	if parent := vfs.root.cachedNode(strings.Trim(dir, "/")); parent != nil {
+		vfs.kernelCacheInvalidator(parent, leaf)
+	}
 }
 
 // SetCacheMode change the cache mode
