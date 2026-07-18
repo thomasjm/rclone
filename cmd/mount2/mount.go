@@ -4,6 +4,7 @@
 package mount2
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"time"
@@ -233,6 +234,11 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 		return nil, nil, "", err
 	}
 
+	// Drop the kernel's cache when the VFS forgets a node.
+	removeInvalidateKernelCacheHook := VFS.AddInvalidateKernelCacheHook(func(ctx context.Context, node vfs.Node) {
+		fsys.invalidateKernelCacheForNode(node)
+	})
+
 	//mountOpts := &fuse.MountOptions{}
 	//server, err := fusefs.Mount(mountpoint, fsys, &opts)
 	// server, err := fusefs.Mount(mountpoint, root, &opts)
@@ -241,6 +247,7 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 	// }
 
 	umount := func() error {
+		removeInvalidateKernelCacheHook()
 		// Shutdown the VFS
 		fsys.VFS.Shutdown()
 		return server.Unmount()

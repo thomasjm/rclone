@@ -4,6 +4,7 @@
 package mount
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -91,6 +92,11 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 	filesys := NewFS(VFS, opt)
 	filesys.server = fusefs.New(c, nil)
 
+	// Drop the kernel's cache when the VFS forgets a node.
+	removeInvalidateKernelCacheHook := VFS.AddInvalidateKernelCacheHook(func(ctx context.Context, node vfs.Node) {
+		filesys.invalidateKernelCacheForNode(node)
+	})
+
 	// Serve the mount point in the background returning error to errChan
 	errChan := make(chan error, 1)
 	go func() {
@@ -103,6 +109,7 @@ func mount(VFS *vfs.VFS, mountpoint string, opt *mountlib.Options) (<-chan error
 	}()
 
 	unmount := func() error {
+		removeInvalidateKernelCacheHook()
 		// Shutdown the VFS
 		filesys.VFS.Shutdown()
 		return fuse.Unmount(mountpoint)

@@ -45,7 +45,31 @@ func (f *FS) Root() (node fusefs.Node, err error) {
 	if err != nil {
 		return nil, translateError(err)
 	}
-	return &Dir{root, f}, nil
+	d := &Dir{root, f}
+	root.SetSys(d) // cache the FUSE node for later
+	return d, nil
+}
+
+// invalidateKernelCacheForNode is called from the VFS's invalidation goroutine.
+func (f *FS) invalidateKernelCacheForNode(node vfs.Node) {
+	// Drop the parent's cached dir entry so the next access re-LOOKUPs and
+	// picks up the fresh size.
+	if parent := node.Parent(); parent != nil {
+		if parentNode, ok := parent.Sys().(fusefs.Node); ok {
+			if err := f.server.InvalidateEntry(parentNode, node.Name()); err != nil && err != fuse.ErrNotCached {
+				fs.Debugf(node.Path(), "Failed to invalidate kernel dir entry: %v", err)
+			}
+		}
+	}
+	// For an already-open file, InvalidateEntry doesn't help - also drop its
+	// cached attributes and page cache.
+	if node.IsFile() {
+		if fuseNode, ok := node.Sys().(fusefs.Node); ok {
+			if err := f.server.InvalidateNodeData(fuseNode); err != nil && err != fuse.ErrNotCached {
+				fs.Debugf(node.Path(), "Failed to invalidate kernel node data: %v", err)
+			}
+		}
+	}
 }
 
 // Check interface satisfied
