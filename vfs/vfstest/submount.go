@@ -199,6 +199,15 @@ func doMountCommand(vfs *vfs.VFS, rx string) (tx string, exit bool) {
 		} else {
 			root.ForgetPath(command[1], fs.EntryDirectory)
 		}
+	case "forgetFile":
+		root, err := vfs.Root()
+		if err != nil {
+			out = []string{"ERR", err.Error()}
+		} else {
+			root.ForgetPath(command[1], fs.EntryObject)
+		}
+	case "hasInvalidateKernelCacheHooks":
+		out = []string{"OK", fmt.Sprintf("%v", vfs.HasInvalidateKernelCacheHooks())}
 	case "exit":
 		exit = true
 	default:
@@ -207,8 +216,8 @@ func doMountCommand(vfs *vfs.VFS, rx string) (tx string, exit bool) {
 	return strings.Join(out, "\t"), exit
 }
 
-// Send a command to the mount subprocess and await a response
-func (r *Run) sendMountCommand(args ...string) {
+// Send a command to the mount subprocess and await its result string
+func (r *Run) sendMountCommand(args ...string) string {
 	r.cmdMu.Lock()
 	defer r.cmdMu.Unlock()
 	tx := strings.Join(args, "\t")
@@ -232,6 +241,10 @@ func (r *Run) sendMountCommand(args ...string) {
 	if in[0] != "OK" {
 		fs.Fatalf(nil, "Error from mount: %q", in[1:])
 	}
+	if len(in) > 1 {
+		return in[1]
+	}
+	return ""
 }
 
 // wait for any files being written to be released by fuse
@@ -242,6 +255,16 @@ func (r *Run) waitForWriters() {
 // forget the directory passed in
 func (r *Run) forget(dir string) {
 	r.sendMountCommand("forget", dir)
+}
+
+// forgetFile forgets the file passed in
+func (r *Run) forgetFile(path string) {
+	r.sendMountCommand("forgetFile", path)
+}
+
+// supportsKernelInvalidation reports whether the mount drops the kernel cache on forget
+func (r *Run) supportsKernelInvalidation() bool {
+	return r.sendMountCommand("hasInvalidateKernelCacheHooks") == "true"
 }
 
 // Unmount the mount
