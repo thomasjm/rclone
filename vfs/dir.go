@@ -201,6 +201,17 @@ func (d *Dir) Node() Node {
 	return d
 }
 
+// Parent returns the parent directory, or nil for the root - satisfies Node interface
+func (d *Dir) Parent() Node {
+	d.mu.RLock()
+	parent := d.parent
+	d.mu.RUnlock()
+	if parent == nil {
+		return nil
+	}
+	return parent
+}
+
 // hasVirtual returns whether the directory or children has virtual entries
 func (d *Dir) hasVirtual() bool {
 	return d._virtuals.Load() != 0
@@ -228,6 +239,7 @@ func (d *Dir) ForgetAll() (hasVirtual bool) {
 
 	fs.Debugf(d.path, "forgetting directory cache")
 	for _, node := range d.items {
+		d.vfs.invalidateKernelCacheForNode(node)
 		if dir, ok := node.(*Dir); ok {
 			dir.ForgetAll()
 		}
@@ -296,6 +308,7 @@ func (d *Dir) changeNotify(relativePath string, entryType fs.EntryType) {
 	if entryType == fs.EntryDirectory {
 		d.invalidateDir(absPath)
 	}
+	d.vfs.invalidateKernelCacheForPath(absPath)
 }
 
 // ForgetPath clears the cache for itself and all subdirectories if
@@ -314,6 +327,24 @@ func (d *Dir) ForgetPath(relativePath string, entryType fs.EntryType) {
 	}
 	if entryType == fs.EntryDirectory {
 		d.forgetDirPath(relativePath)
+	}
+	d.vfs.invalidateKernelCacheForPath(absPath)
+}
+
+// invalidateKernelCacheForSubtree queues this directory's entries recursively,
+// used after vfs/refresh which updates sizes in-place, not via ForgetPath.
+func (d *Dir) invalidateKernelCacheForSubtree() {
+	d.mu.RLock()
+	nodes := make(Nodes, 0, len(d.items))
+	for _, node := range d.items {
+		nodes = append(nodes, node)
+	}
+	d.mu.RUnlock()
+	for _, node := range nodes {
+		d.vfs.invalidateKernelCacheForNode(node)
+		if dir, ok := node.(*Dir); ok {
+			dir.invalidateKernelCacheForSubtree()
+		}
 	}
 }
 

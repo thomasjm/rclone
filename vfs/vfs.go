@@ -69,6 +69,8 @@ type Node interface {
 	Truncate(size int64) error
 	Path() string
 	SetSys(any)
+	// Parent returns the parent directory, or nil for the root.
+	Parent() Node
 }
 
 // Check interfaces
@@ -188,6 +190,15 @@ type VFS struct {
 	usage       *fs.Usage
 	pollChan    chan time.Duration
 	inUse       atomic.Int32 // count of number of opens
+
+	// Kernel cache invalidation hooks - see invalidate.go. nil until the
+	// first hook is added.
+	invalidateKernelCacheMu         sync.Mutex
+	invalidateKernelCacheHooks      map[int]InvalidateKernelCacheHook
+	invalidateKernelCacheNextID     int
+	invalidateKernelCachePending    map[Node]struct{}
+	invalidateKernelCacheWake       chan struct{}
+	invalidateKernelCacheDispatchMu sync.Mutex // held while hooks are running; a barrier for unsubscribe
 }
 
 // Keep track of active VFS keyed on fs.ConfigString(f)

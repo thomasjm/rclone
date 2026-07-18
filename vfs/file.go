@@ -204,6 +204,17 @@ func (f *File) Node() Node {
 	return f
 }
 
+// Parent returns the parent directory - satisfies Node interface
+func (f *File) Parent() Node {
+	f.mu.RLock()
+	d := f.d
+	f.mu.RUnlock()
+	if d == nil {
+		return nil
+	}
+	return d
+}
+
 // renameDir - call when parent directory has been renamed
 func (f *File) renameDir(dPath string) {
 	f.mu.RLock()
