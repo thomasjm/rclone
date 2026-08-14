@@ -570,3 +570,63 @@ func rcQueueSetExpiry(ctx context.Context, in rc.Params) (out rc.Params, err err
 	err = vfs.cache.QueueSetExpiry(writeback.Handle(id), refTime, time.Duration(float64(time.Second)*expiry))
 	return nil, err
 }
+
+func init() {
+	rc.Add(rc.Call{
+		Path:  "vfs/writeback-flush",
+		Title: "Upload all dirty cached files now and wait for them to complete.",
+		Help: strings.ReplaceAll(`
+This expedites the upload of everything in the VFS cache with unwritten
+data and waits until nothing is dirty, giving a barrier after which all
+completed writes are visible in the remote. Files which are still open
+for write are waited on too (they upload once closed), so make sure
+writers have finished before calling this or it will time out.
+
+This call blocks for up to |timeout| (default 1m, floating point
+seconds or a duration string) and returns:
+
+    {
+        "flushed": true,  // boolean: false if the timeout was reached
+        "remaining": []   // array of strings: files still dirty on timeout
+    }
+
+This is a no-op if the |--vfs-cache-mode| is off.
+
+`, "|", "`") + getVFSHelp,
+		Fn: rcWritebackFlush,
+	})
+}
+
+func rcWritebackFlush(ctx context.Context, in rc.Params) (out rc.Params, err error) {
+	vfs, err := getVFS(in)
+	if err != nil {
+		return nil, err
+	}
+	timeout := time.Minute
+	if t, err := in.GetDuration("timeout"); err == nil {
+		timeout = t
+	} else if !rc.IsErrParamNotFound(err) {
+		return nil, err
+	}
+	out = rc.Params{"flushed": true, "remaining": []string{}}
+	if vfs.cache == nil {
+		return out, nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		dirty := vfs.cache.FlushDirty()
+		if len(dirty) == 0 {
+			return out, nil
+		}
+		if time.Now().After(deadline) {
+			out["flushed"] = false
+			out["remaining"] = dirty
+			return out, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}

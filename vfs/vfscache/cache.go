@@ -188,6 +188,28 @@ func (c *Cache) QueueSetExpiry(id writeback.Handle, expiry time.Time, relative t
 	return c.writeback.SetExpiry(id, expiry, relative)
 }
 
+// FlushDirty expedites the upload of any dirty items and returns the
+// names of the items which are still dirty.
+//
+// Dirty items in the upload queue have their expiry set to now. Dirty
+// items not yet in the queue (still open for write, or between
+// close(2) and the FUSE release) are just reported - they will join
+// the queue shortly and a subsequent call will expedite them.
+func (c *Cache) FlushDirty() (dirty []string) {
+	c.mu.Lock()
+	items := make([]*Item, 0, len(c.item))
+	for _, item := range c.item {
+		items = append(items, item)
+	}
+	c.mu.Unlock()
+	for _, item := range items {
+		if name, isDirty := item.expediteWriteback(); isDirty {
+			dirty = append(dirty, name)
+		}
+	}
+	return dirty
+}
+
 // createDir creates a directory path, along with any necessary parents
 func createDir(dir string) error {
 	return file.MkdirAll(dir, 0700)

@@ -463,6 +463,22 @@ func (item *Item) IsDirty() bool {
 	return item.info.Dirty
 }
 
+// expediteWriteback sets the item's writeback expiry to now if it is
+// dirty and queued for upload, returning its name and whether it was
+// dirty.
+func (item *Item) expediteWriteback() (name string, dirty bool) {
+	item.mu.Lock()
+	name = item.name
+	dirty = item.info.Dirty
+	id := item.writeBackID
+	item.mu.Unlock()
+	if dirty && id != 0 {
+		// ErrorIDNotFound just means the item isn't queued yet
+		_ = item.c.writeback.SetExpiry(id, time.Now(), 0)
+	}
+	return name, dirty
+}
+
 // Create the cache file and store the metadata on disk
 // Called with item.mu locked
 func (item *Item) _createFile(osPath string) (err error) {
