@@ -818,7 +818,21 @@ func (item *Item) _actualClose(storeFn StoreFn, syncWriteBack bool) (err error) 
 		fs.Infof(item.name, "vfs cache: queuing for upload in %v", item.c.opt.WriteBack)
 		if syncWriteBack {
 			// do synchronous writeback
-			checkErr(item._store(item.c.ctx, storeFn))
+			storeErr := item._store(item.c.ctx, storeFn)
+			if storeErr != nil {
+				// The item is still dirty in the cache - queue it for
+				// asynchronous writeback so it is retried rather than
+				// stranded in the cache.
+				fs.Errorf(item.name, "vfs cache: synchronous writeback failed, queuing for retry: %v", storeErr)
+				item.c.writeback.SetID(&item.writeBackID)
+				id := item.writeBackID
+				item.mu.Unlock()
+				item.c.writeback.Add(id, item.name, item.info.Size, item.modified, func(ctx context.Context) error {
+					return item.store(ctx, storeFn)
+				})
+				item.mu.Lock()
+			}
+			checkErr(storeErr)
 		} else {
 			// asynchronous writeback
 			item.c.writeback.SetID(&item.writeBackID)

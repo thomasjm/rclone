@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	minUploadDelay = time.Second     // min delay between upload attempts
 	maxUploadDelay = 5 * time.Minute // max delay between upload attempts
 )
 
@@ -363,6 +364,11 @@ func (wb *WriteBack) upload(ctx context.Context, wbItem *writeBackItem) {
 	if err != nil {
 		// FIXME should this have a max number of transfer attempts?
 		wbItem.delay *= 2
+		// keep the retry delay off zero (--vfs-write-back 0 seeds it
+		// with 0 which would otherwise retry in a tight loop)
+		if wbItem.delay < minUploadDelay {
+			wbItem.delay = minUploadDelay
+		}
 		if wbItem.delay > maxUploadDelay {
 			wbItem.delay = maxUploadDelay
 		}
